@@ -4,16 +4,24 @@ const mqtt = require("mqtt");
 const path = require("path");
 const { Server } = require("socket.io");
 
+// ======================================================
+// EXPRESS + HTTP + SOCKET.IO
+// ======================================================
+
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+
+const server =
+  http.createServer(app);
+
+const io =
+  new Server(server);
 
 const PORT =
   process.env.PORT || 3000;
 
 
 // ======================================================
-// CONFIGURAÇÃO MQTT
+// VARIAVEIS MQTT
 // ======================================================
 
 const MQTT_BROKER =
@@ -26,9 +34,49 @@ const MQTT_PASS =
   process.env.MQTT_PASS;
 
 const MQTT_TOPIC =
-  process.env.MQTT_TOPIC || "fleets/gps";
+  process.env.MQTT_TOPIC ||
+  "fleets/gps";
 
-let ultimaTelemetria = null;
+
+// ======================================================
+// ESTADO
+// ======================================================
+
+let ultimaTelemetria =
+  null;
+
+let ultimoErroMQTT =
+  null;
+
+
+// ======================================================
+// MOSTRA CONFIGURACAO SEM EXPOR SENHA
+// ======================================================
+
+console.log();
+console.log("==================================");
+console.log(" CONFIGURACAO DO SERVIDOR");
+console.log("==================================");
+
+console.log(
+  "Broker:",
+  MQTT_BROKER || "NAO DEFINIDO"
+);
+
+console.log(
+  "Usuario:",
+  MQTT_USER || "NAO DEFINIDO"
+);
+
+console.log(
+  "Topico:",
+  MQTT_TOPIC
+);
+
+console.log(
+  "Senha configurada:",
+  MQTT_PASS ? "SIM" : "NAO"
+);
 
 
 // ======================================================
@@ -39,34 +87,40 @@ app.use(
   express.static(__dirname)
 );
 
-app.get("/", (req, res) => {
+app.get(
+  "/",
+  (req, res) => {
 
-  res.sendFile(
-    path.join(
-      __dirname,
-      "index.html"
-    )
-  );
-
-});
+    res.sendFile(
+      path.join(
+        __dirname,
+        "index.html"
+      )
+    );
+  }
+);
 
 
 // ======================================================
-// API TELEMETRIA
+// API - ULTIMA TELEMETRIA
 // ======================================================
 
 app.get(
   "/api/telemetria",
   (req, res) => {
 
-    if (!ultimaTelemetria) {
+    if (
+      !ultimaTelemetria
+    ) {
 
       return res
         .status(404)
         .json({
-          status: "aguardando",
+          status:
+            "aguardando",
+
           mensagem:
-            "Nenhuma telemetria recebida."
+            "Nenhuma telemetria recebida ainda."
         });
     }
 
@@ -78,30 +132,96 @@ app.get(
 
 
 // ======================================================
-// MQTT
+// STATUS
 // ======================================================
 
-console.log(
-  "Conectando ao HiveMQ Cloud..."
+app.get(
+  "/status",
+  (req, res) => {
+
+    res.json({
+
+      servidor:
+        "online",
+
+      mqtt:
+        mqttClient.connected
+          ? "conectado"
+          : "desconectado",
+
+      broker:
+        MQTT_BROKER || null,
+
+      usuario:
+        MQTT_USER || null,
+
+      topico:
+        MQTT_TOPIC,
+
+      ultimaTelemetria:
+        ultimaTelemetria,
+
+      ultimoErroMQTT:
+        ultimoErroMQTT
+    });
+  }
 );
 
-console.log(
-  "Broker:",
-  MQTT_BROKER
-);
 
-console.log(
-  "Tópico:",
-  MQTT_TOPIC
-);
+// ======================================================
+// VALIDA CONFIGURACAO
+// ======================================================
+
+if (
+  !MQTT_BROKER
+) {
+
+  console.error(
+    "ERRO: MQTT_BROKER nao configurado."
+  );
+}
+
+
+if (
+  !MQTT_USER
+) {
+
+  console.error(
+    "ERRO: MQTT_USER nao configurado."
+  );
+}
+
+
+if (
+  !MQTT_PASS
+) {
+
+  console.error(
+    "ERRO: MQTT_PASS nao configurado."
+  );
+}
+
+
+// ======================================================
+// CONEXAO MQTT
+// ======================================================
+
+console.log();
+console.log("==================================");
+console.log(" CONECTANDO AO HIVEMQ CLOUD");
+console.log("==================================");
 
 
 const mqttClient =
   mqtt.connect(
     MQTT_BROKER,
     {
-      username: MQTT_USER,
-      password: MQTT_PASS,
+
+      username:
+        MQTT_USER,
+
+      password:
+        MQTT_PASS,
 
       clientId:
         "render-dashboard-" +
@@ -109,22 +229,33 @@ const mqttClient =
           .toString(16)
           .substring(2, 10),
 
-      clean: true,
+      clean:
+        true,
 
-      reconnectPeriod: 5000,
+      reconnectPeriod:
+        5000,
 
-      connectTimeout: 30000
+      connectTimeout:
+        30000,
+
+      protocolVersion:
+        4
+
     }
   );
 
 
 // ======================================================
-// CONECTADO AO HIVEMQ
+// CONECTADO
 // ======================================================
 
 mqttClient.on(
   "connect",
-  () => {
+  (connack) => {
+
+    ultimoErroMQTT =
+      null;
+
 
     console.log();
     console.log(
@@ -132,11 +263,23 @@ mqttClient.on(
     );
 
     console.log(
-      "CONECTADO AO HIVEMQ CLOUD"
+      " CONECTADO AO HIVEMQ CLOUD"
     );
 
     console.log(
       "=================================="
+    );
+
+
+    console.log(
+      "CONNACK:",
+      connack
+    );
+
+
+    console.log(
+      "Assinando topico:",
+      MQTT_TOPIC
     );
 
 
@@ -145,21 +288,35 @@ mqttClient.on(
       {
         qos: 0
       },
-      (erro) => {
+      (
+        erro,
+        granted
+      ) => {
 
-        if (erro) {
+        if (
+          erro
+        ) {
+
+          console.error();
+          console.error(
+            "ERRO AO ASSINAR TOPICO:"
+          );
 
           console.error(
-            "Erro ao assinar tópico:",
             erro
           );
 
           return;
         }
 
+
+        console.log();
         console.log(
-          "Assinado ao tópico:",
-          MQTT_TOPIC
+          "TOPICO ASSINADO COM SUCESSO"
+        );
+
+        console.log(
+          granted
         );
       }
     );
@@ -168,12 +325,15 @@ mqttClient.on(
 
 
 // ======================================================
-// RECEBE TELEMETRIA
+// TELEMETRIA RECEBIDA
 // ======================================================
 
 mqttClient.on(
   "message",
-  (topic, message) => {
+  (
+    topic,
+    message
+  ) => {
 
     console.log();
     console.log(
@@ -181,15 +341,16 @@ mqttClient.on(
     );
 
     console.log(
-      "TELEMETRIA MQTT RECEBIDA"
+      " TELEMETRIA MQTT RECEBIDA"
     );
 
     console.log(
       "=================================="
     );
 
+
     console.log(
-      "Tópico:",
+      "Topico:",
       topic
     );
 
@@ -219,20 +380,29 @@ mqttClient.on(
         dados;
 
 
+      console.log();
       console.log(
-        "Veículo:",
+        "JSON VALIDO"
+      );
+
+
+      console.log(
+        "ID:",
         dados.id
       );
+
 
       console.log(
         "Latitude:",
         dados.latitude
       );
 
+
       console.log(
         "Longitude:",
         dados.longitude
       );
+
 
       console.log(
         "Velocidade:",
@@ -240,18 +410,44 @@ mqttClient.on(
       );
 
 
-      // Envia para todos
-      // os navegadores conectados
+      console.log(
+        "Satelites:",
+        dados.satelites
+      );
+
+
+      console.log(
+        "HDOP:",
+        dados.hdop
+      );
+
+
+      console.log(
+        "Data/Hora:",
+        dados.dataHora
+      );
+
+
+      // ==================================================
+      // ENVIA PARA O HTML
+      // ==================================================
 
       io.emit(
         "telemetria",
         dados
       );
 
-    } catch (erro) {
+
+    } catch (
+      erro
+    ) {
+
+      console.error();
+      console.error(
+        "ERRO: JSON INVALIDO"
+      );
 
       console.error(
-        "JSON inválido:",
         erro.message
       );
     }
@@ -260,67 +456,150 @@ mqttClient.on(
 
 
 // ======================================================
-// ERROS MQTT
+// ERRO MQTT
 // ======================================================
 
 mqttClient.on(
   "error",
   (erro) => {
 
+    ultimoErroMQTT =
+      {
+        mensagem:
+          erro.message || null,
+
+        codigo:
+          erro.code || null,
+
+        dataHora:
+          new Date().toISOString()
+      };
+
+
+    console.error();
     console.error(
-      "ERRO MQTT:",
+      "=================================="
+    );
+
+    console.error(
+      " ERRO MQTT"
+    );
+
+    console.error(
+      "=================================="
+    );
+
+
+    console.error(
+      "Mensagem:",
       erro.message
     );
+
+
+    console.error(
+      "Codigo:",
+      erro.code
+    );
+
+
+    if (
+      erro.stack
+    ) {
+
+      console.error(
+        "Stack:"
+      );
+
+      console.error(
+        erro.stack
+      );
+    }
   }
 );
 
+
+// ======================================================
+// CONEXAO FECHADA
+// ======================================================
 
 mqttClient.on(
   "close",
   () => {
 
+    console.log();
     console.log(
-      "MQTT desconectado."
+      "MQTT: conexao fechada."
     );
   }
 );
 
+
+// ======================================================
+// CLIENTE OFFLINE
+// ======================================================
+
+mqttClient.on(
+  "offline",
+  () => {
+
+    console.log(
+      "MQTT: cliente offline."
+    );
+  }
+);
+
+
+// ======================================================
+// RECONECTANDO
+// ======================================================
 
 mqttClient.on(
   "reconnect",
   () => {
 
     console.log(
-      "Reconectando ao HiveMQ..."
+      "MQTT: tentando reconectar ao HiveMQ..."
     );
   }
 );
 
 
 // ======================================================
-// STATUS
+// EVENTOS DE PACOTES MQTT
 // ======================================================
 
-app.get(
-  "/status",
-  (req, res) => {
+mqttClient.on(
+  "packetsend",
+  (packet) => {
 
-    res.json({
+    if (
+      packet.cmd === "connect" ||
+      packet.cmd === "subscribe"
+    ) {
 
-      servidor:
-        "online",
+      console.log(
+        "MQTT pacote enviado:",
+        packet.cmd
+      );
+    }
+  }
+);
 
-      mqtt:
-        mqttClient.connected
-          ? "conectado"
-          : "desconectado",
 
-      topico:
-        MQTT_TOPIC,
+mqttClient.on(
+  "packetreceive",
+  (packet) => {
 
-      ultimaTelemetria:
-        ultimaTelemetria
-    });
+    if (
+      packet.cmd === "connack" ||
+      packet.cmd === "suback"
+    ) {
+
+      console.log(
+        "MQTT pacote recebido:",
+        packet.cmd
+      );
+    }
   }
 );
 
@@ -333,11 +612,18 @@ io.on(
   "connection",
   (socket) => {
 
+    console.log();
     console.log(
-      "Navegador conectado:",
+      "Navegador conectado:"
+    );
+
+    console.log(
       socket.id
     );
 
+
+    // Se já existir telemetria,
+    // envia imediatamente
 
     if (
       ultimaTelemetria
@@ -355,7 +641,8 @@ io.on(
       () => {
 
         console.log(
-          "Navegador desconectado."
+          "Navegador desconectado:",
+          socket.id
         );
       }
     );
@@ -364,7 +651,7 @@ io.on(
 
 
 // ======================================================
-// SERVIDOR
+// INICIA SERVIDOR
 // ======================================================
 
 server.listen(
@@ -378,16 +665,22 @@ server.listen(
     );
 
     console.log(
-      "SERVIDOR WEB ONLINE"
+      " SERVIDOR WEB ONLINE"
     );
+
+    console.log(
+      "=================================="
+    );
+
 
     console.log(
       "Porta:",
       PORT
     );
 
+
     console.log(
-      "=================================="
+      "Aguardando conexao MQTT..."
     );
   }
 );
