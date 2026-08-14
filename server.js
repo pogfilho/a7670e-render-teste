@@ -1,359 +1,223 @@
 const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const mqtt = require("mqtt");
 
 const app = express();
+const server = http.createServer(app);
 
-app.use(express.json());
+const io = new Server(server);
 
-// Guarda a última telemetria recebida
+const PORT = process.env.PORT || 3000;
+
+// ======================================================
+// MQTT
+// ======================================================
+
+const MQTT_BROKER =
+  process.env.MQTT_BROKER ||
+  "mqtt://SEU_BROKER:1883";
+
+const MQTT_USER =
+  process.env.MQTT_USER || "";
+
+const MQTT_PASS =
+  process.env.MQTT_PASS || "";
+
+const MQTT_TOPIC =
+  "fleets/gps";
+
 let ultimaTelemetria = null;
 
 
-// ============================================================
-// PAGINA HTML
-// ============================================================
-
-app.get("/", (req, res) => {
-  res.send(`
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <title>Telemetria A7670E</title>
-
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f6f8;
-      margin: 0;
-      padding: 0;
-    }
-
-    header {
-      background: #1f2937;
-      color: white;
-      padding: 20px;
-      text-align: center;
-    }
-
-    .container {
-      max-width: 900px;
-      margin: 30px auto;
-      padding: 20px;
-    }
-
-    .card {
-      background: white;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    }
-
-    .status {
-      font-size: 18px;
-      font-weight: bold;
-      margin-bottom: 20px;
-    }
-
-    .online {
-      color: green;
-    }
-
-    .offline {
-      color: red;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 15px;
-    }
-
-    .item {
-      background: #f9fafb;
-      border-radius: 8px;
-      padding: 15px;
-    }
-
-    .label {
-      font-size: 13px;
-      color: #6b7280;
-      margin-bottom: 5px;
-    }
-
-    .value {
-      font-size: 22px;
-      font-weight: bold;
-      color: #111827;
-    }
-
-    pre {
-      background: #111827;
-      color: #e5e7eb;
-      padding: 15px;
-      border-radius: 8px;
-      overflow-x: auto;
-    }
-
-    .erro {
-      color: #b91c1c;
-    }
-  </style>
-</head>
-
-<body>
-
-<header>
-  <h1>ESP32 + A7670E</h1>
-  <p>Monitor de Telemetria</p>
-</header>
-
-<div class="container">
-
-  <div class="card">
-
-    <div id="status" class="status">
-      Carregando...
-    </div>
-
-    <div class="grid">
-
-      <div class="item">
-        <div class="label">Veículo</div>
-        <div id="id" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">Latitude</div>
-        <div id="latitude" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">Longitude</div>
-        <div id="longitude" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">Velocidade</div>
-        <div id="velocidade" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">Satélites</div>
-        <div id="satelites" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">HDOP</div>
-        <div id="hdop" class="value">-</div>
-      </div>
-
-      <div class="item">
-        <div class="label">Data/Hora</div>
-        <div id="dataHora" class="value">-</div>
-      </div>
-
-    </div>
-
-  </div>
-
-
-  <div class="card">
-
-    <h2>JSON recebido</h2>
-
-    <pre id="json">
-Nenhuma telemetria recebida.
-    </pre>
-
-  </div>
-
-</div>
-
-
-<script>
-
-async function carregarTelemetria() {
-
-  try {
-
-    const resposta =
-      await fetch("/api/ultima-localizacao");
-
-    const dados =
-      await resposta.json();
-
-
-    if (!dados.disponivel) {
-
-      document.getElementById("status").innerHTML =
-        "<span class='offline'>Nenhuma telemetria recebida</span>";
-
-      return;
-    }
-
-
-    const t = dados.telemetria;
-
-
-    document.getElementById("status").innerHTML =
-      "<span class='online'>Telemetria recebida</span>";
-
-
-    document.getElementById("id").textContent =
-      t.id ?? "-";
-
-
-    document.getElementById("latitude").textContent =
-      t.latitude ?? "-";
-
-
-    document.getElementById("longitude").textContent =
-      t.longitude ?? "-";
-
-
-    document.getElementById("velocidade").textContent =
-      t.velocidade !== undefined
-      ? t.velocidade + " km/h"
-      : "-";
-
-
-    document.getElementById("satelites").textContent =
-      t.satelites ?? "-";
-
-
-    document.getElementById("hdop").textContent =
-      t.hdop ?? "-";
-
-
-    document.getElementById("dataHora").textContent =
-      t.dataHora ?? "-";
-
-
-    document.getElementById("json").textContent =
-      JSON.stringify(
-        t,
-        null,
-        2
-      );
-
-  }
-
-  catch (erro) {
-
-    document.getElementById("status").innerHTML =
-      "<span class='erro'>Erro ao acessar o servidor</span>";
-
-    console.error(erro);
-  }
-}
-
-
-// Atualiza a cada 3 segundos
-setInterval(
-  carregarTelemetria,
-  3000
+// ======================================================
+// ARQUIVOS HTML
+// ======================================================
+
+app.use(
+  express.static("public")
 );
 
 
-// Primeira leitura
-carregarTelemetria();
-
-</script>
-
-</body>
-</html>
-  `);
-});
-
-
-// ============================================================
-// RECEBE TELEMETRIA
-// ============================================================
-
-app.post("/api/localizacao", (req, res) => {
-
-  console.log(
-    "==================================="
-  );
-
-  console.log(
-    "TELEMETRIA RECEBIDA"
-  );
-
-  console.log(
-    req.body
-  );
-
-  console.log(
-    "==================================="
-  );
-
-
-  ultimaTelemetria =
-    req.body;
-
-
-  res.status(200).json({
-
-    sucesso: true,
-
-    mensagem:
-      "Telemetria recebida com sucesso",
-
-    dados:
-      req.body
-  });
-});
-
-
-// ============================================================
-// RETORNA ULTIMA TELEMETRIA
-// ============================================================
+// ======================================================
+// API DO ULTIMO DADO
+// ======================================================
 
 app.get(
-  "/api/ultima-localizacao",
+  "/api/telemetria",
   (req, res) => {
 
     if (!ultimaTelemetria) {
 
-      return res.json({
-
-        disponivel: false,
-
-        telemetria: null
+      return res.status(404).json({
+        erro: "Nenhuma telemetria recebida ainda"
       });
     }
 
-
-    res.json({
-
-      disponivel: true,
-
-      telemetria:
-        ultimaTelemetria
-    });
+    res.json(
+      ultimaTelemetria
+    );
   }
 );
 
 
-// ============================================================
+// ======================================================
+// CONEXAO MQTT
+// ======================================================
+
+const mqttClient =
+  mqtt.connect(
+    MQTT_BROKER,
+    {
+      username:
+        MQTT_USER || undefined,
+
+      password:
+        MQTT_PASS || undefined,
+
+      reconnectPeriod: 5000
+    }
+  );
+
+
+mqttClient.on(
+  "connect",
+  () => {
+
+    console.log(
+      "Conectado ao broker MQTT"
+    );
+
+    mqttClient.subscribe(
+      MQTT_TOPIC,
+      (erro) => {
+
+        if (erro) {
+
+          console.error(
+            "Erro ao assinar tópico:",
+            erro
+          );
+
+          return;
+        }
+
+        console.log(
+          "Assinado:",
+          MQTT_TOPIC
+        );
+      }
+    );
+  }
+);
+
+
+mqttClient.on(
+  "message",
+  (topic, message) => {
+
+    try {
+
+      const dados =
+        JSON.parse(
+          message.toString()
+        );
+
+      ultimaTelemetria =
+        dados;
+
+
+      console.log(
+        "Telemetria recebida:"
+      );
+
+      console.log(
+        dados
+      );
+
+
+      // envia em tempo real
+      // para todos os navegadores
+
+      io.emit(
+        "telemetria",
+        dados
+      );
+
+    } catch (erro) {
+
+      console.error(
+        "JSON inválido:",
+        erro
+      );
+    }
+  }
+);
+
+
+mqttClient.on(
+  "error",
+  (erro) => {
+
+    console.error(
+      "Erro MQTT:",
+      erro
+    );
+  }
+);
+
+
+// ======================================================
+// SOCKET.IO
+// ======================================================
+
+io.on(
+  "connection",
+  (socket) => {
+
+    console.log(
+      "Navegador conectado"
+    );
+
+
+    // envia o último dado
+    // imediatamente
+
+    if (
+      ultimaTelemetria
+    ) {
+
+      socket.emit(
+        "telemetria",
+        ultimaTelemetria
+      );
+    }
+
+
+    socket.on(
+      "disconnect",
+      () => {
+
+        console.log(
+          "Navegador desconectado"
+        );
+      }
+    );
+  }
+);
+
+
+// ======================================================
 // SERVIDOR
-// ============================================================
+// ======================================================
 
-const PORT =
-  process.env.PORT || 3000;
-
-
-app.listen(
+server.listen(
   PORT,
   "0.0.0.0",
   () => {
 
     console.log(
-      "Servidor iniciado na porta " + PORT
+      `Servidor iniciado na porta ${PORT}`
     );
   }
 );
