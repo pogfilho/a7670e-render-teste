@@ -1,22 +1,19 @@
 const express = require("express");
 const http = require("http");
 const mqtt = require("mqtt");
+const path = require("path");
 const { Server } = require("socket.io");
 
 const app = express();
-
-const server =
-  http.createServer(app);
-
-const io =
-  new Server(server);
+const server = http.createServer(app);
+const io = new Server(server);
 
 const PORT =
   process.env.PORT || 3000;
 
 
 // ======================================================
-// MQTT
+// CONFIGURAÇÃO MQTT
 // ======================================================
 
 const MQTT_BROKER =
@@ -31,21 +28,31 @@ const MQTT_PASS =
 const MQTT_TOPIC =
   process.env.MQTT_TOPIC || "fleets/gps";
 
-
 let ultimaTelemetria = null;
 
 
 // ======================================================
-// HTML
+// INDEX.HTML NA RAIZ
 // ======================================================
 
 app.use(
-  express.static("public")
+  express.static(__dirname)
 );
+
+app.get("/", (req, res) => {
+
+  res.sendFile(
+    path.join(
+      __dirname,
+      "index.html"
+    )
+  );
+
+});
 
 
 // ======================================================
-// API
+// API TELEMETRIA
 // ======================================================
 
 app.get(
@@ -59,7 +66,7 @@ app.get(
         .json({
           status: "aguardando",
           mensagem:
-            "Nenhuma telemetria recebida ainda."
+            "Nenhuma telemetria recebida."
         });
     }
 
@@ -71,32 +78,11 @@ app.get(
 
 
 // ======================================================
-// STATUS
-// ======================================================
-
-app.get(
-  "/status",
-  (req, res) => {
-
-    res.json({
-      servidor: "online",
-      mqtt:
-        mqttClient.connected
-          ? "conectado"
-          : "desconectado",
-      topico: MQTT_TOPIC,
-      ultimaTelemetria
-    });
-  }
-);
-
-
-// ======================================================
-// MQTT HIVEMQ
+// MQTT
 // ======================================================
 
 console.log(
-  "Conectando ao HiveMQ..."
+  "Conectando ao HiveMQ Cloud..."
 );
 
 console.log(
@@ -114,12 +100,8 @@ const mqttClient =
   mqtt.connect(
     MQTT_BROKER,
     {
-
-      username:
-        MQTT_USER,
-
-      password:
-        MQTT_PASS,
+      username: MQTT_USER,
+      password: MQTT_PASS,
 
       clientId:
         "render-dashboard-" +
@@ -127,27 +109,24 @@ const mqttClient =
           .toString(16)
           .substring(2, 10),
 
-      clean:
-        true,
+      clean: true,
 
-      reconnectPeriod:
-        5000,
+      reconnectPeriod: 5000,
 
-      connectTimeout:
-        30000
-
+      connectTimeout: 30000
     }
   );
 
 
 // ======================================================
-// MQTT CONECTADO
+// CONECTADO AO HIVEMQ
 // ======================================================
 
 mqttClient.on(
   "connect",
   () => {
 
+    console.log();
     console.log(
       "=================================="
     );
@@ -178,15 +157,12 @@ mqttClient.on(
           return;
         }
 
-
         console.log(
           "Assinado ao tópico:",
           MQTT_TOPIC
         );
-
       }
     );
-
   }
 );
 
@@ -221,6 +197,10 @@ mqttClient.on(
     const texto =
       message.toString();
 
+
+    console.log(
+      "Payload:"
+    );
 
     console.log(
       texto
@@ -260,15 +240,13 @@ mqttClient.on(
       );
 
 
-      // ==================================================
-      // ENVIA PARA O HTML
-      // ==================================================
+      // Envia para todos
+      // os navegadores conectados
 
       io.emit(
         "telemetria",
         dados
       );
-
 
     } catch (erro) {
 
@@ -276,15 +254,13 @@ mqttClient.on(
         "JSON inválido:",
         erro.message
       );
-
     }
-
   }
 );
 
 
 // ======================================================
-// ERRO MQTT
+// ERROS MQTT
 // ======================================================
 
 mqttClient.on(
@@ -295,14 +271,9 @@ mqttClient.on(
       "ERRO MQTT:",
       erro.message
     );
-
   }
 );
 
-
-// ======================================================
-// DESCONECTADO
-// ======================================================
 
 mqttClient.on(
   "close",
@@ -311,14 +282,9 @@ mqttClient.on(
     console.log(
       "MQTT desconectado."
     );
-
   }
 );
 
-
-// ======================================================
-// RECONECTANDO
-// ======================================================
 
 mqttClient.on(
   "reconnect",
@@ -327,7 +293,34 @@ mqttClient.on(
     console.log(
       "Reconectando ao HiveMQ..."
     );
+  }
+);
 
+
+// ======================================================
+// STATUS
+// ======================================================
+
+app.get(
+  "/status",
+  (req, res) => {
+
+    res.json({
+
+      servidor:
+        "online",
+
+      mqtt:
+        mqttClient.connected
+          ? "conectado"
+          : "desconectado",
+
+      topico:
+        MQTT_TOPIC,
+
+      ultimaTelemetria:
+        ultimaTelemetria
+    });
   }
 );
 
@@ -346,9 +339,6 @@ io.on(
     );
 
 
-    // Envia imediatamente
-    // o último dado conhecido
-
     if (
       ultimaTelemetria
     ) {
@@ -357,7 +347,6 @@ io.on(
         "telemetria",
         ultimaTelemetria
       );
-
     }
 
 
@@ -368,10 +357,8 @@ io.on(
         console.log(
           "Navegador desconectado."
         );
-
       }
     );
-
   }
 );
 
@@ -402,6 +389,5 @@ server.listen(
     console.log(
       "=================================="
     );
-
   }
 );
