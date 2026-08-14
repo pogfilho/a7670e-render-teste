@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 // ======================================================
 
 const MQTT_BROKER =
-  "mqtts://5ec53482f3d345e0a10b9002d085a379.s1.eu.hivemq.cloud:8883";
+  "mqtts://5ec53482f3d345e0a10b9002d085a379.s1.eu.hivemq.cloud";
 
 const MQTT_USER =
   "paulo";
