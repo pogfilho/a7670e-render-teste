@@ -1,37 +1,42 @@
 const express = require("express");
 const http = require("http");
-const { Server } = require("socket.io");
 const mqtt = require("mqtt");
+const { Server } = require("socket.io");
 
 const app = express();
-const server = http.createServer(app);
 
-const io = new Server(server);
+const server =
+  http.createServer(app);
 
-const PORT = process.env.PORT || 3000;
+const io =
+  new Server(server);
+
+const PORT =
+  process.env.PORT || 3000;
+
 
 // ======================================================
 // MQTT
 // ======================================================
 
 const MQTT_BROKER =
-  process.env.MQTT_BROKER ||
-  "mqtt://SEU_BROKER:1883";
+  process.env.MQTT_BROKER;
 
 const MQTT_USER =
-  process.env.MQTT_USER || "";
+  process.env.MQTT_USER;
 
 const MQTT_PASS =
-  process.env.MQTT_PASS || "";
+  process.env.MQTT_PASS;
 
 const MQTT_TOPIC =
-  "fleets/gps";
+  process.env.MQTT_TOPIC || "fleets/gps";
+
 
 let ultimaTelemetria = null;
 
 
 // ======================================================
-// ARQUIVOS HTML
+// HTML
 // ======================================================
 
 app.use(
@@ -40,7 +45,7 @@ app.use(
 
 
 // ======================================================
-// API DO ULTIMO DADO
+// API
 // ======================================================
 
 app.get(
@@ -49,9 +54,13 @@ app.get(
 
     if (!ultimaTelemetria) {
 
-      return res.status(404).json({
-        erro: "Nenhuma telemetria recebida ainda"
-      });
+      return res
+        .status(404)
+        .json({
+          status: "aguardando",
+          mensagem:
+            "Nenhuma telemetria recebida ainda."
+        });
     }
 
     res.json(
@@ -62,34 +71,101 @@ app.get(
 
 
 // ======================================================
-// CONEXAO MQTT
+// STATUS
 // ======================================================
+
+app.get(
+  "/status",
+  (req, res) => {
+
+    res.json({
+      servidor: "online",
+      mqtt:
+        mqttClient.connected
+          ? "conectado"
+          : "desconectado",
+      topico: MQTT_TOPIC,
+      ultimaTelemetria
+    });
+  }
+);
+
+
+// ======================================================
+// MQTT HIVEMQ
+// ======================================================
+
+console.log(
+  "Conectando ao HiveMQ..."
+);
+
+console.log(
+  "Broker:",
+  MQTT_BROKER
+);
+
+console.log(
+  "Tópico:",
+  MQTT_TOPIC
+);
+
 
 const mqttClient =
   mqtt.connect(
     MQTT_BROKER,
     {
+
       username:
-        MQTT_USER || undefined,
+        MQTT_USER,
 
       password:
-        MQTT_PASS || undefined,
+        MQTT_PASS,
 
-      reconnectPeriod: 5000
+      clientId:
+        "render-dashboard-" +
+        Math.random()
+          .toString(16)
+          .substring(2, 10),
+
+      clean:
+        true,
+
+      reconnectPeriod:
+        5000,
+
+      connectTimeout:
+        30000
+
     }
   );
 
+
+// ======================================================
+// MQTT CONECTADO
+// ======================================================
 
 mqttClient.on(
   "connect",
   () => {
 
     console.log(
-      "Conectado ao broker MQTT"
+      "=================================="
     );
+
+    console.log(
+      "CONECTADO AO HIVEMQ CLOUD"
+    );
+
+    console.log(
+      "=================================="
+    );
+
 
     mqttClient.subscribe(
       MQTT_TOPIC,
+      {
+        qos: 0
+      },
       (erro) => {
 
         if (erro) {
@@ -102,67 +178,156 @@ mqttClient.on(
           return;
         }
 
+
         console.log(
-          "Assinado:",
+          "Assinado ao tópico:",
           MQTT_TOPIC
         );
+
       }
     );
+
   }
 );
 
+
+// ======================================================
+// RECEBE TELEMETRIA
+// ======================================================
 
 mqttClient.on(
   "message",
   (topic, message) => {
 
+    console.log();
+    console.log(
+      "=================================="
+    );
+
+    console.log(
+      "TELEMETRIA MQTT RECEBIDA"
+    );
+
+    console.log(
+      "=================================="
+    );
+
+    console.log(
+      "Tópico:",
+      topic
+    );
+
+
+    const texto =
+      message.toString();
+
+
+    console.log(
+      texto
+    );
+
+
     try {
 
       const dados =
         JSON.parse(
-          message.toString()
+          texto
         );
+
 
       ultimaTelemetria =
         dados;
 
 
       console.log(
-        "Telemetria recebida:"
+        "Veículo:",
+        dados.id
       );
 
       console.log(
-        dados
+        "Latitude:",
+        dados.latitude
+      );
+
+      console.log(
+        "Longitude:",
+        dados.longitude
+      );
+
+      console.log(
+        "Velocidade:",
+        dados.velocidade
       );
 
 
-      // envia em tempo real
-      // para todos os navegadores
+      // ==================================================
+      // ENVIA PARA O HTML
+      // ==================================================
 
       io.emit(
         "telemetria",
         dados
       );
 
+
     } catch (erro) {
 
       console.error(
         "JSON inválido:",
-        erro
+        erro.message
       );
+
     }
+
   }
 );
 
+
+// ======================================================
+// ERRO MQTT
+// ======================================================
 
 mqttClient.on(
   "error",
   (erro) => {
 
     console.error(
-      "Erro MQTT:",
-      erro
+      "ERRO MQTT:",
+      erro.message
     );
+
+  }
+);
+
+
+// ======================================================
+// DESCONECTADO
+// ======================================================
+
+mqttClient.on(
+  "close",
+  () => {
+
+    console.log(
+      "MQTT desconectado."
+    );
+
+  }
+);
+
+
+// ======================================================
+// RECONECTANDO
+// ======================================================
+
+mqttClient.on(
+  "reconnect",
+  () => {
+
+    console.log(
+      "Reconectando ao HiveMQ..."
+    );
+
   }
 );
 
@@ -176,12 +341,13 @@ io.on(
   (socket) => {
 
     console.log(
-      "Navegador conectado"
+      "Navegador conectado:",
+      socket.id
     );
 
 
-    // envia o último dado
-    // imediatamente
+    // Envia imediatamente
+    // o último dado conhecido
 
     if (
       ultimaTelemetria
@@ -191,6 +357,7 @@ io.on(
         "telemetria",
         ultimaTelemetria
       );
+
     }
 
 
@@ -199,10 +366,12 @@ io.on(
       () => {
 
         console.log(
-          "Navegador desconectado"
+          "Navegador desconectado."
         );
+
       }
     );
+
   }
 );
 
@@ -216,8 +385,23 @@ server.listen(
   "0.0.0.0",
   () => {
 
+    console.log();
     console.log(
-      `Servidor iniciado na porta ${PORT}`
+      "=================================="
     );
+
+    console.log(
+      "SERVIDOR WEB ONLINE"
+    );
+
+    console.log(
+      "Porta:",
+      PORT
+    );
+
+    console.log(
+      "=================================="
+    );
+
   }
 );
